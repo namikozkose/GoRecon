@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/namikozkose/GoRecon/internal/network"
@@ -16,7 +17,7 @@ var (
 	targetIP   string
 	ports      string
 	workers    int
-	outputFile string // Yeni silahımız: JSON Export
+	outputFile string
 )
 
 func parsePorts(portStr string) []int {
@@ -57,49 +58,72 @@ var rootCmd = &cobra.Command{
 			return
 		}
 
-		fmt.Printf("\n[+] HEDEF KİLİTLENDİ: %s\n", targetIP)
-		fmt.Printf("[+] GÜÇ: %d Worker | CEPHANE: %d Port\n", workers, len(targetPorts))
-		fmt.Println("[~] Tarama başlatılıyor, ağ trafiği izleniyor...")
+		targets, err := network.GetTargets(targetIP)
+		if err != nil {
+			fmt.Printf("[-] HATA: Hedef ayrıştırılamadı: %v\n", err)
+			return
+		}
 
-		// KRONOMETREYİ BAŞLAT
+		fmt.Printf("\n[+] HEDEF KAPSAMI: %d Adet IP Adresi\n", len(targets))
+		fmt.Printf("[+] GÜÇ: %d Worker | CEPHANE: %d Port (Her IP için)\n", workers, len(targetPorts))
+		fmt.Println("[~] AĞ TARAMASI BAŞLATILDI! Lütfen bekleyin...")
+
+		allResults := make(map[string][]network.PortResult)
+
+		// YENİ SİLAH: Host seviyesinde eşzamanlılık için WaitGroup ve Mutex
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
 		startTime := time.Now()
 
-		openPorts := network.StartConcurrentScan(targetIP, targetPorts, workers)
+		// Artık IP'leri sırayla beklemek yok, hepsine aynı anda saldırıyoruz!
+		for _, ip := range targets {
+			wg.Add(1)
 
-		// KRONOMETREYİ DURDUR
-		duration := time.Since(startTime)
+			// Her bir IP için ayrı bir Goroutine başlatıyoruz
+			go func(targetIP string) {
+				defer wg.Done()
 
-		fmt.Printf("\n[!] TARAMA %v İÇİNDE YOK EDİLDİ.\n", duration)
-		fmt.Println("---------------------------------------------------")
+				// O IP için port taramasını başlat
+				openPorts := network.StartConcurrentScan(targetIP, targetPorts, workers)
 
-		for _, result := range openPorts {
-			cleanBanner := strings.TrimSpace(result.Banner)
-			if cleanBanner != "" {
-				lines := strings.Split(cleanBanner, "\n")
-				fmt.Printf(" -> %d/tcp \tAÇIK \t| %s\n", result.Port, strings.TrimSpace(lines[0]))
-			} else {
-				fmt.Printf(" -> %d/tcp \tAÇIK \t| (Filtreli / Yanıt Yok)\n", result.Port)
-			}
+				// Eğer açık port bulunduysa, sonuçları güvenle kaydet
+				if len(openPorts) > 0 {
+					mu.Lock() // Aynı anda haritaya yazmayı engellemek için kilitliyoruz (Thread-Safe)
+					allResults[targetIP] = openPorts
+					mu.Unlock() // Kilidi aç
+				}
+			}(ip)
 		}
+
+		// Tüm IP Goroutine'lerinin işini bitirmesini bekle
+		wg.Wait()
+
+		duration := time.Since(startTime)
+		fmt.Printf("\n[!] TÜM AĞ %v İÇİNDE YOK EDİLDİ.\n", duration)
 		fmt.Println("---------------------------------------------------")
 
-		// EĞER KULLANICI -o FLAG'İ GİRDİYSE JSON'A DÖK
+		for ip, resList := range allResults {
+			fmt.Printf("[*] %s üzerindeki açık portlar:\n", ip)
+			for _, result := range resList {
+				cleanBanner := strings.TrimSpace(result.Banner)
+				if cleanBanner != "" {
+					lines := strings.Split(cleanBanner, "\n")
+					fmt.Printf(" -> %d/tcp \tAÇIK \t| %s\n", result.Port, strings.TrimSpace(lines[0]))
+				} else {
+					fmt.Printf(" -> %d/tcp \tAÇIK \t| (Filtreli / Yanıt Yok)\n", result.Port)
+				}
+			}
+			fmt.Println("---------------------------------------------------")
+		}
+
 		if outputFile != "" {
-			fmt.Printf("[+] JSON Raporu hazırlanıyor: %s\n", outputFile)
-
-			// JSON formatını güzelleştirerek (Indent) oluştur
-			jsonData, err := json.MarshalIndent(openPorts, "", "  ")
+			jsonData, err := json.MarshalIndent(allResults, "", "  ")
 			if err != nil {
-				fmt.Printf("[-] JSON oluşturulurken hata: %v\n", err)
+				fmt.Printf("[-] JSON hatası: %v\n", err)
 				return
 			}
-
-			// Dosyaya yazdır
-			err = os.WriteFile(outputFile, jsonData, 0644)
-			if err != nil {
-				fmt.Printf("[-] Dosya yazılamadı: %v\n", err)
-				return
-			}
+			os.WriteFile(outputFile, jsonData, 0644)
 			fmt.Printf("[+] Rapor başarıyla '%s' dosyasına kaydedildi!\n", outputFile)
 		}
 	},
@@ -113,12 +137,9 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&targetIP, "target", "t", "", "Hedef IP veya Hostname (Zorunlu)")
+	rootCmd.Flags().StringVarP(&targetIP, "target", "t", "", "Hedef IP, Domain veya CIDR (Zorunlu)")
 	rootCmd.Flags().StringVarP(&ports, "ports", "p", "1-1024", "Taranacak portlar (Örn: 80,443 veya 1-100)")
-	rootCmd.Flags().IntVarP(&workers, "workers", "w", 100, "Goroutine Sayısı (Eşzamanlı iş parçacığı)")
-
-	// YENİ FLAG: Output
-	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Sonuçları JSON formatında kaydet (Örn: scan_result.json)")
-
+	rootCmd.Flags().IntVarP(&workers, "workers", "w", 100, "Goroutine Sayısı")
+	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Sonuçları JSON formatında kaydet")
 	rootCmd.MarkFlagRequired("target")
 }
