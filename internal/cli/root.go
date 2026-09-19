@@ -1,48 +1,42 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/namikozkose/GoRecon/internal/network"
 	"github.com/spf13/cobra"
 )
 
 var (
-	targetIP string
-	ports    string
-	workers  int
+	targetIP   string
+	ports      string
+	workers    int
+	outputFile string // Yeni silahımız: JSON Export
 )
 
-// parsePorts, terminalden gelen "80,443" veya "1-100" gibi metinleri tam sayı listesine çevirir
 func parsePorts(portStr string) []int {
 	var result []int
-
-	// Virgülle ayrılmış değerleri parçala
 	parts := strings.Split(portStr, ",")
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
-
-		// Eğer içinde "-" varsa (Örn: 1-100) aralığı hesapla
 		if strings.Contains(part, "-") {
 			rangeParts := strings.Split(part, "-")
 			if len(rangeParts) != 2 {
 				continue
 			}
-
-			// Metni tam sayıya (Integer) çevir
 			start, err1 := strconv.Atoi(rangeParts[0])
 			end, err2 := strconv.Atoi(rangeParts[1])
-
 			if err1 == nil && err2 == nil && start <= end {
 				for i := start; i <= end; i++ {
 					result = append(result, i)
 				}
 			}
 		} else {
-			// Tekil port numarasıysa doğrudan ekle
 			p, err := strconv.Atoi(part)
 			if err == nil {
 				result = append(result, p)
@@ -54,24 +48,59 @@ func parsePorts(portStr string) []int {
 
 var rootCmd = &cobra.Command{
 	Use:   "scanner",
-	Short: "Yüksek hızlı TCP Port Tarayıcı",
+	Short: "Yüksek Hızlı Dağıtık TCP Port Tarayıcı",
 	Run: func(cmd *cobra.Command, args []string) {
 
-		// 1. Terminalden gelen string metni ayrıştır
 		targetPorts := parsePorts(ports)
 		if len(targetPorts) == 0 {
-			fmt.Println("[-] Hata: Geçerli bir port aralığı girilmedi!")
+			fmt.Println("[-] HATA: Geçerli bir port aralığı girilmedi!")
 			return
 		}
 
-		fmt.Printf("[+] Hedef: %s | Taranacak Port Sayısı: %d | Worker: %d\n", targetIP, len(targetPorts), workers)
+		fmt.Printf("\n[+] HEDEF KİLİTLENDİ: %s\n", targetIP)
+		fmt.Printf("[+] GÜÇ: %d Worker | CEPHANE: %d Port\n", workers, len(targetPorts))
+		fmt.Println("[~] Tarama başlatılıyor, ağ trafiği izleniyor...")
 
-		// 2. Dinamik değerleri motora gönder
+		// KRONOMETREYİ BAŞLAT
+		startTime := time.Now()
+
 		openPorts := network.StartConcurrentScan(targetIP, targetPorts, workers)
 
-		fmt.Printf("\n[!] TARAMA TAMAMLANDI. Açık Portlar:\n")
-		for _, port := range openPorts {
-			fmt.Printf(" -> %d AÇIK\n", port)
+		// KRONOMETREYİ DURDUR
+		duration := time.Since(startTime)
+
+		fmt.Printf("\n[!] TARAMA %v İÇİNDE YOK EDİLDİ.\n", duration)
+		fmt.Println("---------------------------------------------------")
+
+		for _, result := range openPorts {
+			cleanBanner := strings.TrimSpace(result.Banner)
+			if cleanBanner != "" {
+				lines := strings.Split(cleanBanner, "\n")
+				fmt.Printf(" -> %d/tcp \tAÇIK \t| %s\n", result.Port, strings.TrimSpace(lines[0]))
+			} else {
+				fmt.Printf(" -> %d/tcp \tAÇIK \t| (Filtreli / Yanıt Yok)\n", result.Port)
+			}
+		}
+		fmt.Println("---------------------------------------------------")
+
+		// EĞER KULLANICI -o FLAG'İ GİRDİYSE JSON'A DÖK
+		if outputFile != "" {
+			fmt.Printf("[+] JSON Raporu hazırlanıyor: %s\n", outputFile)
+
+			// JSON formatını güzelleştirerek (Indent) oluştur
+			jsonData, err := json.MarshalIndent(openPorts, "", "  ")
+			if err != nil {
+				fmt.Printf("[-] JSON oluşturulurken hata: %v\n", err)
+				return
+			}
+
+			// Dosyaya yazdır
+			err = os.WriteFile(outputFile, jsonData, 0644)
+			if err != nil {
+				fmt.Printf("[-] Dosya yazılamadı: %v\n", err)
+				return
+			}
+			fmt.Printf("[+] Rapor başarıyla '%s' dosyasına kaydedildi!\n", outputFile)
 		}
 	},
 }
@@ -84,10 +113,12 @@ func Execute() {
 }
 
 func init() {
-	// Flag'lerimizi CLI'a bağlıyoruz ve varsayılan (default) değerler atıyoruz
-	rootCmd.Flags().StringVarP(&targetIP, "target", "t", "", "Hedef IP adresi (Zorunlu)")
+	rootCmd.Flags().StringVarP(&targetIP, "target", "t", "", "Hedef IP veya Hostname (Zorunlu)")
 	rootCmd.Flags().StringVarP(&ports, "ports", "p", "1-1024", "Taranacak portlar (Örn: 80,443 veya 1-100)")
-	rootCmd.Flags().IntVarP(&workers, "workers", "w", 100, "Eşzamanlı iş parçacığı sayısı")
+	rootCmd.Flags().IntVarP(&workers, "workers", "w", 100, "Goroutine Sayısı (Eşzamanlı iş parçacığı)")
+
+	// YENİ FLAG: Output
+	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Sonuçları JSON formatında kaydet (Örn: scan_result.json)")
 
 	rootCmd.MarkFlagRequired("target")
 }

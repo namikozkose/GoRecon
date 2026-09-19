@@ -1,0 +1,10 @@
+[
+  {
+    "Port": 22,
+    "Banner": "SSH-2.0-OpenSSH_6.6.1p1 Ubuntu-2ubuntu2.13\r\n"
+  },
+  {
+    "Port": 80,
+    "Banner": "HTTP/1.1 200 OK\r\nDate: Sat, 19 Sep 2026 14:15:22 GMT\r\nServer: Apache/2.4.7 (Ubuntu)\r\nAccept-Ranges: bytes\r\nVary: Accept-Encoding\r\nConnection: close\r\nContent-Type: text/html\r\n\r\n\u003c!DOCTYPE html\u003e\n\u003chtml lang=\"en\"\u003e\n\u003chead\u003e\n\u003ctitle\u003eGo ahead and ScanMe!\u003c/title\u003e\n\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\n\u003cmeta name=\"theme-color\" content=\"#2A0D45\"\u003e\n\u003clink rel=\"preload\" as=\"image\" href=\"/images/sitelogo.png\" imagesizes=\"168px\" imagesrcset=\"/images/sitelogo.png, /images/sitelogo-2x.png 2x\"\u003e\n\u003clink rel=\"preload\" as=\"image\" href=\"/shared/images/nst-icons.svg\"\u003e\n\u003clink rel=\"stylesheet\" href=\"/shared/css/nst.css?v=2\"\u003e\n\u003cscript async src=\"/shared/js/nst.js?v=2\"\u003e\u003c/script\u003e\n\u003clink rel=\"stylesheet\" href=\"/shared/css/nst-foot.css?v=2\" media=\"print\" onload=\"this.media='all'\"\u003e\n\u003clink rel=\"stylesheet\" href=\"/site.css\"\u003e\n\u003c!--Google Analytics Code--\u003e\n\u003clink rel=\"preload\" href=\"https://www.google-analytics.com/analytics.js\" as=\"script\"\u003e\n\u003cscript\u003e\n(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){\n("
+  }
+]
